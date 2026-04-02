@@ -179,7 +179,7 @@ function initializeFromVelocitySpectrum(
 
 function initializeParticles(settings: UniverseSettings): UniverseParticle[] {
   const rng = mulberry32(hashSeed(settings.seed));
-  const count = clamp(Math.round(settings.particleCount), 100, 3000);
+  const count = clamp(Math.round(settings.particleCount), 100, 50000);
   const particleMass = TOTAL_BOX_MASS / count;
   const modes = createModes(settings.spectralIndex, rng);
   return settings.initializationMode === "velocity-spectrum"

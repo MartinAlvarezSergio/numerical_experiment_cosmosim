@@ -262,6 +262,31 @@ input[type="range"] {
   box-shadow: 0 18px 36px rgba(0, 0, 0, 0.5);
 }
 
+.hover-help-tooltip {
+  position: fixed;
+  z-index: 2000;
+  max-width: min(340px, 70vw);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(2px);
+  transition:
+    opacity 90ms ease,
+    transform 90ms ease;
+  background: rgba(16, 18, 24, 0.95);
+  color: #efe9df;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.84rem;
+  line-height: 1.35;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.45);
+}
+
+.hover-help-tooltip.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .field-inline {
   display: grid !important;
   grid-template-columns: minmax(145px, 0.95fr) minmax(0, 1.05fr);
@@ -295,6 +320,10 @@ input[type="range"] {
   gap: 0.3rem;
   font-size: 0.95rem;
   color: #d8d3cd;
+}
+
+.spectrum-description {
+  text-align: justify;
 }
 
 .canvas-shell {

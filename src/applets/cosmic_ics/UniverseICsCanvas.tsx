@@ -15,7 +15,7 @@ import {
 } from "./types";
 
 const PARTICLES_MIN = 2000;
-const PARTICLES_MAX = 3000;
+const PARTICLES_MAX = 50000;
 const PARTICLES_DEFAULT = 2000;
 
 const N3D_MIN = -3;
@@ -26,6 +26,7 @@ const STORE_SNAPSHOTS_AT_DESIRED_STEP = true;
 const STORE_RUN_ARTIFACTS_TO_DISK = false;
 const COMPARE_1_REFERENCE_FINAL_STATE_IMAGE_URL = "/001_run-1_box.png";
 const COMPARE_2_REFERENCE_FINAL_STATE_IMAGE_URL = "/001_run-1_box%20(1).png";
+const ARBITRARY_UNITS_TO_GYR = 14 / 16.7;
 const FIXED_INTERNAL_DT_SECONDS = 1 / 120;
 const MAX_FRAME_DT_SECONDS = 0.1;
 const MAX_SUBSTEPS_PER_FRAME = 24;
@@ -184,8 +185,16 @@ function createPowerSpectrumImage(
 
   ctx.fillStyle = "rgba(230, 224, 212, 0.9)";
   ctx.font = "12px Inter, system-ui, sans-serif";
-  ctx.fillText("k", marginLeft + plotW - 6, h - 8);
-  ctx.fillText("log P(k)", 8, marginTop + 10);
+  const axisLabel = "scale";
+  const axisLabelWidth = ctx.measureText(axisLabel).width;
+  ctx.fillText(axisLabel, marginLeft + (plotW - axisLabelWidth) / 2, h - 22);
+  ctx.fillText("log Power", 8, marginTop + 10);
+  ctx.font = "11px Inter, system-ui, sans-serif";
+  ctx.fillStyle = "rgba(210, 204, 194, 0.88)";
+  ctx.fillText("large scale", marginLeft, h - 8);
+  const rightLabel = "small scale";
+  const rightLabelWidth = ctx.measureText(rightLabel).width;
+  ctx.fillText(rightLabel, marginLeft + plotW - rightLabelWidth, h - 8);
 
   return {
     imageUrl: canvas.toDataURL("image/png"),
@@ -453,6 +462,71 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
     return () => cancelAnimationFrame(raf);
   }, [running, paused, sim]);
 
+  useEffect(() => {
+    const root = canvasRef.current?.closest(".gravity-layout");
+    if (!root) return;
+    const labels = root.querySelectorAll<HTMLLabelElement>("label[title]");
+    for (const label of labels) {
+      const hint = label.getAttribute("title");
+      if (!hint) continue;
+      label.setAttribute("data-hover-help", hint);
+      const descendants = label.querySelectorAll<HTMLElement>("input, select, button, span, strong");
+      for (const element of descendants) {
+        if (!element.getAttribute("title")) {
+          element.setAttribute("title", hint);
+        }
+        element.setAttribute("data-hover-help", hint);
+      }
+    }
+  });
+
+  useEffect(() => {
+    const root = canvasRef.current?.closest(".gravity-layout");
+    if (!root) return;
+    const tooltip = document.createElement("div");
+    tooltip.className = "hover-help-tooltip";
+    document.body.appendChild(tooltip);
+
+    const placeTooltip = (x: number, y: number): void => {
+      const offset = 14;
+      const maxX = window.innerWidth - tooltip.offsetWidth - 8;
+      const maxY = window.innerHeight - tooltip.offsetHeight - 8;
+      const left = Math.min(Math.max(8, x + offset), Math.max(8, maxX));
+      const top = Math.min(Math.max(8, y + offset), Math.max(8, maxY));
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    };
+
+    const onMouseMove = (event: MouseEvent): void => {
+      const target = event.target as HTMLElement | null;
+      const hintTarget = target?.closest?.("[data-hover-help]") as HTMLElement | null;
+      if (!hintTarget || !root.contains(hintTarget)) {
+        tooltip.classList.remove("visible");
+        return;
+      }
+      const hint = hintTarget.getAttribute("data-hover-help");
+      if (!hint) {
+        tooltip.classList.remove("visible");
+        return;
+      }
+      tooltip.textContent = hint;
+      tooltip.classList.add("visible");
+      placeTooltip(event.clientX, event.clientY);
+    };
+
+    const onMouseLeave = (): void => {
+      tooltip.classList.remove("visible");
+    };
+
+    root.addEventListener("mousemove", onMouseMove);
+    root.addEventListener("mouseleave", onMouseLeave);
+    return () => {
+      root.removeEventListener("mousemove", onMouseMove);
+      root.removeEventListener("mouseleave", onMouseLeave);
+      tooltip.remove();
+    };
+  }, []);
+
   function onStart(): void {
     sim.reset(settings);
     runElapsedSecondsRef.current = 0;
@@ -585,6 +659,8 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
   ]);
 
   const controlsLocked = running;
+  const cosmicTimeUnits = currentStep * FIXED_INTERNAL_DT_SECONDS;
+  const cosmicTimeGyr = cosmicTimeUnits * ARBITRARY_UNITS_TO_GYR;
   const runTimeColor = runningTimeColor(runningTimeSeconds, yellowTimeSeconds);
   const solutionTimeColor =
     timeToSolutionSeconds === null
@@ -602,7 +678,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
         subtitle={controlsLocked ? "Locked - simulation is running." : "Open - configure before you run."}
       >
         <div className="control-grid">
-          <label className="field-inline control-span-2">
+          <label className="field-inline control-span-2" title="Optional label used when this run snapshot is stored.">
             <span>Run name:</span>
             <input
               type="text"
@@ -613,10 +689,10 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
             />
           </label>
 
-          <div className="control-section control-span-2">
+              <div className="control-section control-span-2">
             <h4 className="section-title">Initial conditions</h4>
             <div className="control-grid">
-              <label className="control-span-2">
+              <label className="control-span-2" title="Total number of simulation particles in the box.">
                 <span className="slider-label">
                   <span>Number of particles:</span>
                   <strong>{particleCount}</strong>
@@ -632,7 +708,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
                 />
               </label>
 
-              <label className="control-span-2">
+              <label className="control-span-2" title="Controls how smooth or clumpy the starting Universe is. Moving it changes how much structure appears on large versus small patterns in the initial map.">
                 <span className="slider-label">
                   <span>Spectral index n:</span>
                   <strong>{format(spectralIndex3D)}</strong>
@@ -648,7 +724,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
                 />
               </label>
 
-              <label className="field-inline control-span-2">
+              <label className="field-inline control-span-2" title="Choose whether initial fluctuations are seeded in density or velocity field.">
                 <span>Initialize from:</span>
                 <select
                   value={initializationMode}
@@ -660,7 +736,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
                 </select>
               </label>
 
-              <label className="field-inline control-span-2">
+              <label className="field-inline control-span-2" title="A starting number used by the random generator. If you keep this value the same, you can reproduce exactly the same initial particle setup; changing it gives a different Universe realization.">
                 <span>Random seed:</span>
                 <input
                   type="text"
@@ -675,7 +751,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
           <div className="control-section control-span-2">
             <h4 className="section-title">Boundary model</h4>
             <div className="control-grid">
-              <label className="field-inline control-span-2">
+              <label className="field-inline control-span-2" title="Chooses how gravity is computed each timestep. Direct N-body computes pair-by-pair forces, while FFT-PM computes gravity on a grid.">
                 <span>Solver:</span>
                 <select
                   value={solverMode}
@@ -687,7 +763,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
                 </select>
               </label>
 
-              <label className="field-inline control-span-2">
+              <label className="field-inline control-span-2" title="How particles behave at the box edges.">
                 <span>Particle boundary:</span>
                 <select
                   value={solverMode === "fft-pm" ? "periodic" : boundaryMode}
@@ -700,7 +776,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
                 </select>
               </label>
 
-              <label className="field-inline control-span-2">
+              <label className="field-inline control-span-2" title="How gravity handles distances near boundaries (single box vs periodic images).">
                 <span>Gravity boundary:</span>
                 <select
                   value={solverMode === "fft-pm" ? "periodic" : gravityBoundaryMode}
@@ -719,7 +795,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
           <div className="control-section control-span-2">
             <h4 className="section-title">Dense-region processes</h4>
             <div className="control-grid">
-              <label className="checkbox control-span-2">
+              <label className="checkbox control-span-2" title="Enable velocity damping process for selected particles.">
                 <input
                   type="checkbox"
                   checked={coolingEnabled}
@@ -729,7 +805,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
                 <span>Cooling.</span>
               </label>
 
-              <label className="control-span-2">
+              <label className="control-span-2" title="Sets the energy-loss strength for selected particles (representing baryons). Higher values make those particles settle more quickly.">
                 <span className="slider-label">
                   <span>Cooling strength:</span>
                   <strong>{format(coolingStrength)}</strong>
@@ -745,7 +821,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
                 />
               </label>
 
-              <label className="control-span-2">
+              <label className="control-span-2" title="Fraction of particles eligible for cooling each run.">
                 <span className="slider-label">
                   <span>Cooling fraction:</span>
                   <strong>{(coolingFraction * 100).toFixed(0)}%</strong>
@@ -761,10 +837,10 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
                 />
               </label>
               <p className="subtle cooling-warning control-span-2">
-                Warning: cooling particles can change between runs.
+                Warning: the cooled-particle subset can change if initial-condition or boundary settings are changed.
               </p>
 
-              <label className="checkbox control-span-2">
+              <label className="checkbox control-span-2" title="Represents astrophysical heating processes (for example, supernova feedback). Turning this on injects energy into dense regions.">
                 <input
                   type="checkbox"
                   checked={feedbackEnabled}
@@ -774,7 +850,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
                 <span>Feedback (dense regions).</span>
               </label>
 
-              <label className="control-span-2">
+              <label className="control-span-2" title="Amplitude of random feedback kicks in dense regions.">
                 <span className="slider-label">
                   <span>Feedback strength:</span>
                   <strong>{format(feedbackStrength)}</strong>
@@ -792,7 +868,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
             </div>
           </div>
 
-          <label className="field-inline control-span-2">
+          <label className="field-inline control-span-2" title="Target step at which run metrics and snapshot are captured.">
             <span>Desired step:</span>
             <input
               type="number"
@@ -804,7 +880,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
             />
           </label>
 
-          <label className="control-span-2">
+          <label className="control-span-2" title="Runtime threshold where timing color turns yellow (red at 2x this value).">
             <span className="slider-label">
               <span>Yellow at (seconds):</span>
               <strong>{format(yellowTimeSeconds)} s</strong>
@@ -821,31 +897,44 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
           </label>
 
           <div className="button-row control-span-2">
-            <button type="button" onClick={onStart} disabled={running}>
+            <button type="button" onClick={onStart} disabled={running} title="Start a fresh run with the current configuration.">
               Start
             </button>
-            <button type="button" onClick={() => setPaused((v) => !v)} disabled={!running}>
+            <button
+              type="button"
+              onClick={() => setPaused((v) => !v)}
+              disabled={!running}
+              title="Pause or resume the current run."
+            >
               {paused ? "Resume" : "Pause"}
             </button>
-            <button type="button" onClick={onReset}>
+            <button type="button" onClick={onReset} title="Stop and reset the simulation to current settings.">
               Reset
             </button>
           </div>
 
           <div className="stats control-span-2">
-            <div>
+            <div title="Total number of integration steps completed in this run.">
               Current step: <strong>{currentStep}</strong>
             </div>
-            <div>
+            <div title="Simulation time advanced in fixed internal timestep units.">
+              Cosmic time (Gyr): <strong>{format(cosmicTimeGyr)}</strong>
+            </div>
+            <div title="Wall-clock runtime since pressing Start.">
               Running time:{" "}
               <strong style={{ color: runTimeColor }}>{format(runningTimeSeconds)} s</strong>
             </div>
-            <div>
+            <div title="Wall-clock time when the run first reached the desired step.">
               Time to solution:{" "}
               <strong style={{ color: solutionTimeColor }}>
                 {timeToSolutionSeconds === null ? "--" : `${format(timeToSolutionSeconds)} s`}
               </strong>
             </div>
+            <p className="subtle spectrum-description">
+              Power spectrum (second panel for each simulation run): this shows how strongly matter
+              is clustered at different sizes. In this plot, the left side corresponds to larger
+              structures and the right side to smaller structures.
+            </p>
           </div>
 
           <details className="control-section control-span-2 once-done-box">
