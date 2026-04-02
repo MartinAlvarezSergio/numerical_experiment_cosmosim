@@ -497,8 +497,9 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
       tooltip.style.top = `${top}px`;
     };
 
-    const onMouseMove = (event: MouseEvent): void => {
-      const target = event.target as HTMLElement | null;
+    const onMouseMove = (event: Event): void => {
+      const mouseEvent = event as MouseEvent;
+      const target = mouseEvent.target as HTMLElement | null;
       const hintTarget = target?.closest?.("[data-hover-help]") as HTMLElement | null;
       if (!hintTarget || !root.contains(hintTarget)) {
         tooltip.classList.remove("visible");
@@ -511,7 +512,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
       }
       tooltip.textContent = hint;
       tooltip.classList.add("visible");
-      placeTooltip(event.clientX, event.clientY);
+      placeTooltip(mouseEvent.clientX, mouseEvent.clientY);
     };
 
     const onMouseLeave = (): void => {
