@@ -16,6 +16,7 @@ Cosmological initial conditions (ICs) are just how you set up the particles at t
 A cosmological box represents only a finite patch of the Universe. Particle boundary conditions dictate what happens when a particle reaches a face/edge of the box (reflect back, exit as outflow, or re-enter with periodic wrapping). Gravity boundary conditions control how the gravitational potential and forces are computed at the edges.
 
 With a direct N-body solver:
+- Recommendation: start this section with a high spectral index so edge effects are easier to identify.
 - Compare reflective, outflowing, and periodic particle boundary conditions. Which one seems the most accurate for cosmological simulations? Why? Which artifacts at edges are most evident for each of them?
 - With particle boundary fixed, compare gravity boundary single-box vs periodic. How does this affect the formation of structure?
 - Which combination of particle boundary and gravity boundary do you think provides the best representation of our Universe?
@@ -25,7 +26,7 @@ With a direct N-body solver:
 A direct N-body solver sums pairwise gravitational interactions (what is the effect of each particle on every other particle); an FFT-based particle-mesh (PM) solver places the mass of the particles on a grid, solves Poisson with a Fourier transform, and interpolates forces to particles. 
 
 - Compare the Direct N-body solver vs the FFT-PM - keeping all the other numerical parameters fixed. Are the apparent structures qualitatively similar? Which one is faster?
-- Where do solver differences appear first: fine-grained small-scale clumps or broad filamentary patterns?
+- Where do you expect solver differences to appear first: fine-grained small-scale clumps or broad filamentary patterns?
 - If two solvers agree visually but differ in runtime, when do you think / how can we determine whether the faster one is "good enough" for a scientific question?
 
 ## 4) Extra! Added Physics: Cooling and Feedback
