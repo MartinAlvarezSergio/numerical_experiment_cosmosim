@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { setLogicalTransform } from "../../core/canvasScale";
 import { AppletHostAdapter } from "../../core/host";
-import { ControlCard } from "../../ui/ControlCard";
+import { AppletStage } from "../../ui/stage/AppletStage";
+import {
+  StageIconButton,
+  StagePills,
+  StageReadout,
+  StageSection,
+  StageSelect,
+  StageSlider,
+  StageTextField,
+  StageToggle
+} from "../../ui/stage/StageControls";
 import { renderUniverseICs } from "./render";
 import { createUniverseSim } from "./sim";
 import compare1Reference from "./compare1_reference.json";
@@ -24,12 +35,46 @@ const N3D_DEFAULT = 1;
 const DIRECT_PENALTY_DEFAULT = 1;
 const STORE_SNAPSHOTS_AT_DESIRED_STEP = true;
 const STORE_RUN_ARTIFACTS_TO_DISK = false;
-const COMPARE_1_REFERENCE_FINAL_STATE_IMAGE_URL = "/001_run-1_box.png";
-const COMPARE_2_REFERENCE_FINAL_STATE_IMAGE_URL = "/001_run-1_box%20(1).png";
+const COMPARE_1_REFERENCE_FINAL_STATE_IMAGE_URL = `${import.meta.env.BASE_URL}001_run-1_box.png`;
+const COMPARE_2_REFERENCE_FINAL_STATE_IMAGE_URL = `${import.meta.env.BASE_URL}001_run-1_box%20(1).png`;
 const ARBITRARY_UNITS_TO_GYR = 14 / 16.7;
 const FIXED_INTERNAL_DT_SECONDS = 1 / 120;
 const MAX_FRAME_DT_SECONDS = 0.1;
 const MAX_SUBSTEPS_PER_FRAME = 24;
+/** Logical canvas size; matches the simulation box in sim.ts. */
+const CANVAS_W = 900;
+const CANVAS_H = 620;
+
+const TIP = {
+  play: "Start a fresh run with the current settings, or pause and resume it.",
+  reset: "Stop and reset the simulation to the current settings.",
+  runName: "Optional label used when this run's snapshot is stored.",
+  particles: "Total number of simulation particles in the box.",
+  spectralIndex:
+    "Controls how smooth or clumpy the starting Universe is. Moving it changes how much structure appears on large versus small patterns in the initial map.",
+  initFrom: "Choose whether initial fluctuations are seeded in the density or the velocity field.",
+  seed:
+    "A starting number for the random generator. Keep it the same to reproduce exactly the same initial particles; change it for a different Universe realization.",
+  solver:
+    "How gravity is computed each timestep. Direct N-body computes pair-by-pair forces; FFT-PM computes gravity on a grid.",
+  particleBoundary: "How particles behave at the box edges.",
+  gravityBoundary: "How gravity handles distances near boundaries (single box vs periodic images).",
+  cooling: "Enable velocity damping for selected particles.",
+  coolingStrength:
+    "Energy-loss strength for selected particles (representing baryons). Higher values make those particles settle more quickly.",
+  coolingFraction:
+    "Fraction of particles eligible for cooling each run.\nThe cooled subset can change if initial-condition or boundary settings change.",
+  feedback:
+    "Represents astrophysical heating (for example, supernova feedback). Turning this on injects energy into dense regions.",
+  feedbackStrength: "Amplitude of random feedback kicks in dense regions.",
+  desiredStep: "Step at which the run's metrics and snapshot are captured.",
+  yellowAt: "Running time at which the timing colour turns yellow (red at twice this value).",
+  compare: "Get a similarity score against this reference Universe when the snapshot is captured. Lower is better.",
+  currentStep: "Integration steps completed in this run.",
+  cosmicTime: "Simulation time advanced in fixed internal timestep units.",
+  runningTime: "Wall-clock time since pressing Start.",
+  timeToSolution: "Wall-clock time when the run first reached the desired step."
+} as const;
 
 type UniverseICsCanvasProps = {
   host?: AppletHostAdapter;
@@ -401,6 +446,8 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
     ]
   );
 
+  // Sim is a stable handle; `settings` updates go through `sim.reset(settings)` below.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional single sim instance
   const sim = useMemo(() => createUniverseSim(settings), []);
 
   useEffect(() => {
@@ -454,6 +501,7 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
       }
 
       const snapshot = sim.getSnapshot();
+      setLogicalTransform(ctx, CANVAS_W);
       renderUniverseICs(ctx, snapshot);
       raf = requestAnimationFrame(frame);
     };
@@ -461,72 +509,6 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
   }, [running, paused, sim]);
-
-  useEffect(() => {
-    const root = canvasRef.current?.closest(".gravity-layout");
-    if (!root) return;
-    const labels = root.querySelectorAll<HTMLLabelElement>("label[title]");
-    for (const label of labels) {
-      const hint = label.getAttribute("title");
-      if (!hint) continue;
-      label.setAttribute("data-hover-help", hint);
-      const descendants = label.querySelectorAll<HTMLElement>("input, select, button, span, strong");
-      for (const element of descendants) {
-        if (!element.getAttribute("title")) {
-          element.setAttribute("title", hint);
-        }
-        element.setAttribute("data-hover-help", hint);
-      }
-    }
-  });
-
-  useEffect(() => {
-    const root = canvasRef.current?.closest(".gravity-layout");
-    if (!root) return;
-    const tooltip = document.createElement("div");
-    tooltip.className = "hover-help-tooltip";
-    document.body.appendChild(tooltip);
-
-    const placeTooltip = (x: number, y: number): void => {
-      const offset = 14;
-      const maxX = window.innerWidth - tooltip.offsetWidth - 8;
-      const maxY = window.innerHeight - tooltip.offsetHeight - 8;
-      const left = Math.min(Math.max(8, x + offset), Math.max(8, maxX));
-      const top = Math.min(Math.max(8, y + offset), Math.max(8, maxY));
-      tooltip.style.left = `${left}px`;
-      tooltip.style.top = `${top}px`;
-    };
-
-    const onMouseMove = (event: Event): void => {
-      const mouseEvent = event as MouseEvent;
-      const target = mouseEvent.target as HTMLElement | null;
-      const hintTarget = target?.closest?.("[data-hover-help]") as HTMLElement | null;
-      if (!hintTarget || !root.contains(hintTarget)) {
-        tooltip.classList.remove("visible");
-        return;
-      }
-      const hint = hintTarget.getAttribute("data-hover-help");
-      if (!hint) {
-        tooltip.classList.remove("visible");
-        return;
-      }
-      tooltip.textContent = hint;
-      tooltip.classList.add("visible");
-      placeTooltip(mouseEvent.clientX, mouseEvent.clientY);
-    };
-
-    const onMouseLeave = (): void => {
-      tooltip.classList.remove("visible");
-    };
-
-    root.addEventListener("mousemove", onMouseMove);
-    root.addEventListener("mouseleave", onMouseLeave);
-    return () => {
-      root.removeEventListener("mousemove", onMouseMove);
-      root.removeEventListener("mouseleave", onMouseLeave);
-      tooltip.remove();
-    };
-  }, []);
 
   function onStart(): void {
     sim.reset(settings);
@@ -655,6 +637,9 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
     desiredStep,
     runNameInput,
     runningTimeSeconds,
+    settings.boundaryMode,
+    settings.gravityBoundaryMode,
+    settings.solverMode,
     sim,
     yellowTimeSeconds
   ]);
@@ -672,354 +657,274 @@ export function UniverseICsCanvas({ host }: UniverseICsCanvasProps): JSX.Element
     setCapturedRuns((prev) => prev.filter((run) => run.runNumber !== runNumber));
   }
 
-  return (
-    <div className="gravity-layout">
-      <ControlCard
-        title="Simulation Choices, Cosmic Consequences"
-        subtitle={controlsLocked ? "Locked - simulation is running." : "Open - configure before you run."}
-      >
-        <div className="control-grid">
-          <label className="field-inline control-span-2" title="Optional label used when this run snapshot is stored.">
-            <span>Run name:</span>
-            <input
-              type="text"
-              value={runNameInput}
-              placeholder={`Run ${nextRunNumberRef.current}`}
-              disabled={controlsLocked}
-              onChange={(event) => setRunNameInput(event.target.value)}
+  const fftLocksBoundaries = solverMode === "fft-pm";
+  const playLabel = running && !paused ? "Pause" : running ? "Resume" : "Start";
+
+  function onPlayPause(): void {
+    if (!running) {
+      onStart();
+    } else {
+      setPaused((v) => !v);
+    }
+  }
+
+  const toolbar = (
+    <>
+      <StageIconButton icon={running && !paused ? "pause" : "play"} label={playLabel} tip={TIP.play} onClick={onPlayPause} />
+      <StageIconButton icon="reset" label="Reset" tip={TIP.reset} onClick={onReset} />
+    </>
+  );
+
+  const controls = (
+    <>
+      <StageTextField
+        label="Run name"
+        value={runNameInput}
+        placeholder={`Run ${nextRunNumberRef.current}`}
+        disabled={controlsLocked}
+        tip={TIP.runName}
+        onChange={setRunNameInput}
+      />
+      <StageSection title="Initial conditions">
+        <StageSlider
+          label="Number of particles"
+          display={String(particleCount)}
+          value={particleCount}
+          min={PARTICLES_MIN}
+          max={PARTICLES_MAX}
+          step={50}
+          disabled={controlsLocked}
+          tip={TIP.particles}
+          onChange={setParticleCount}
+        />
+        <StageSlider
+          label="Spectral index n"
+          display={format(spectralIndex3D)}
+          value={spectralIndex3D}
+          min={N3D_MIN}
+          max={N3D_MAX}
+          step={0.1}
+          disabled={controlsLocked}
+          tip={TIP.spectralIndex}
+          onChange={setSpectralIndex3D}
+        />
+        <StageSelect
+          label="Initialize from"
+          value={initializationMode}
+          options={[
+            { value: "density-spectrum", label: "Density spectrum" },
+            { value: "velocity-spectrum", label: "Velocity spectrum" }
+          ]}
+          disabled={controlsLocked}
+          tip={TIP.initFrom}
+          onChange={setInitializationMode}
+        />
+        <StageTextField label="Random seed" value={seed} disabled={controlsLocked} tip={TIP.seed} onChange={setSeed} />
+      </StageSection>
+      <StageSection title="Boundary model">
+        <StageSelect
+          label="Solver"
+          value={solverMode}
+          options={[
+            { value: "direct-nbody", label: "Direct N-body" },
+            { value: "fft-pm", label: "FFT-PM (64x64 mesh)" }
+          ]}
+          disabled={controlsLocked}
+          tip={TIP.solver}
+          onChange={setSolverMode}
+        />
+        <StageSelect
+          label="Particle boundary"
+          value={fftLocksBoundaries ? "periodic" : boundaryMode}
+          options={[
+            { value: "reflective", label: "Reflective" },
+            { value: "outflow", label: "Outflow" },
+            { value: "periodic", label: "Periodic" }
+          ]}
+          disabled={controlsLocked || fftLocksBoundaries}
+          tip={TIP.particleBoundary}
+          onChange={setBoundaryMode}
+        />
+        <StageSelect
+          label="Gravity boundary"
+          value={fftLocksBoundaries ? "periodic" : gravityBoundaryMode}
+          options={[
+            { value: "single-box", label: "Single box" },
+            { value: "periodic", label: "Periodic (3x3 images)" }
+          ]}
+          disabled={controlsLocked || fftLocksBoundaries}
+          tip={TIP.gravityBoundary}
+          onChange={setGravityBoundaryMode}
+        />
+      </StageSection>
+      <StageSection title="Dense-region processes">
+        <StagePills>
+          <StageToggle label="Cooling" on={coolingEnabled} disabled={controlsLocked} tip={TIP.cooling} onChange={setCoolingEnabled} />
+          <StageToggle
+            label="Feedback (dense regions)"
+            on={feedbackEnabled}
+            disabled={controlsLocked}
+            tip={TIP.feedback}
+            onChange={setFeedbackEnabled}
+          />
+        </StagePills>
+        <StageSlider
+          label="Cooling strength"
+          display={format(coolingStrength)}
+          value={coolingStrength}
+          min={0}
+          max={2}
+          step={0.05}
+          disabled={controlsLocked || !coolingEnabled}
+          tip={TIP.coolingStrength}
+          onChange={setCoolingStrength}
+        />
+        <StageSlider
+          label="Cooling fraction"
+          display={`${(coolingFraction * 100).toFixed(0)}%`}
+          value={coolingFraction}
+          min={0}
+          max={1}
+          step={0.01}
+          disabled={controlsLocked}
+          tip={TIP.coolingFraction}
+          onChange={setCoolingFraction}
+        />
+        <StageSlider
+          label="Feedback strength"
+          display={format(feedbackStrength)}
+          value={feedbackStrength}
+          min={0}
+          max={2}
+          step={0.05}
+          disabled={controlsLocked || !feedbackEnabled}
+          tip={TIP.feedbackStrength}
+          onChange={setFeedbackStrength}
+        />
+      </StageSection>
+      <StageSection title="Run">
+        <StageTextField
+          label="Desired step"
+          type="number"
+          min={1}
+          step={1}
+          value={desiredStep}
+          disabled={controlsLocked}
+          tip={TIP.desiredStep}
+          onChange={(v) => setDesiredStep(Math.max(1, Number(v) || 1))}
+        />
+        <StageSlider
+          label="Yellow at (seconds)"
+          display={`${format(yellowTimeSeconds)} s`}
+          value={yellowTimeSeconds}
+          min={2}
+          max={60}
+          step={0.5}
+          disabled={controlsLocked}
+          tip={TIP.yellowAt}
+          onChange={setYellowTimeSeconds}
+        />
+      </StageSection>
+      <StageSection title="Once you are done" defaultOpen={false}>
+        <div className="compare-target-grid">
+          <div className="compare-target-card">
+            <img
+              className="compare-reference-image"
+              src={COMPARE_1_REFERENCE_FINAL_STATE_IMAGE_URL}
+              alt="Reference final-state simulation box for Compare 1"
             />
-          </label>
-
-              <div className="control-section control-span-2">
-            <h4 className="section-title">Initial conditions</h4>
-            <div className="control-grid">
-              <label className="control-span-2" title="Total number of simulation particles in the box.">
-                <span className="slider-label">
-                  <span>Number of particles:</span>
-                  <strong>{particleCount}</strong>
-                </span>
-                <input
-                  type="range"
-                  min={PARTICLES_MIN}
-                  max={PARTICLES_MAX}
-                  step={50}
-                  value={particleCount}
-                  disabled={controlsLocked}
-                  onChange={(event) => setParticleCount(Number(event.target.value))}
-                />
-              </label>
-
-              <label className="control-span-2" title="Controls how smooth or clumpy the starting Universe is. Moving it changes how much structure appears on large versus small patterns in the initial map.">
-                <span className="slider-label">
-                  <span>Spectral index n:</span>
-                  <strong>{format(spectralIndex3D)}</strong>
-                </span>
-                <input
-                  type="range"
-                  min={N3D_MIN}
-                  max={N3D_MAX}
-                  step={0.1}
-                  value={spectralIndex3D}
-                  disabled={controlsLocked}
-                  onChange={(event) => setSpectralIndex3D(Number(event.target.value))}
-                />
-              </label>
-
-              <label className="field-inline control-span-2" title="Choose whether initial fluctuations are seeded in density or velocity field.">
-                <span>Initialize from:</span>
-                <select
-                  value={initializationMode}
-                  disabled={controlsLocked}
-                  onChange={(event) => setInitializationMode(event.target.value as ICSourceMode)}
-                >
-                  <option value="density-spectrum">Density spectrum</option>
-                  <option value="velocity-spectrum">Velocity spectrum</option>
-                </select>
-              </label>
-
-              <label className="field-inline control-span-2" title="A starting number used by the random generator. If you keep this value the same, you can reproduce exactly the same initial particle setup; changing it gives a different Universe realization.">
-                <span>Random seed:</span>
-                <input
-                  type="text"
-                  value={seed}
-                  disabled={controlsLocked}
-                  onChange={(event) => setSeed(event.target.value)}
-                />
-              </label>
-            </div>
+            <StageToggle label="Compare 1" on={compare1Enabled} disabled={controlsLocked} tip={TIP.compare} onChange={setCompare1Enabled} />
           </div>
-
-          <div className="control-section control-span-2">
-            <h4 className="section-title">Boundary model</h4>
-            <div className="control-grid">
-              <label className="field-inline control-span-2" title="Chooses how gravity is computed each timestep. Direct N-body computes pair-by-pair forces, while FFT-PM computes gravity on a grid.">
-                <span>Solver:</span>
-                <select
-                  value={solverMode}
-                  disabled={controlsLocked}
-                  onChange={(event) => setSolverMode(event.target.value as SolverMode)}
-                >
-                  <option value="direct-nbody">Direct N-body</option>
-                  <option value="fft-pm">FFT-PM (64x64 mesh)</option>
-                </select>
-              </label>
-
-              <label className="field-inline control-span-2" title="How particles behave at the box edges.">
-                <span>Particle boundary:</span>
-                <select
-                  value={solverMode === "fft-pm" ? "periodic" : boundaryMode}
-                  disabled={controlsLocked || solverMode === "fft-pm"}
-                  onChange={(event) => setBoundaryMode(event.target.value as BoundaryMode)}
-                >
-                  <option value="reflective">Reflective</option>
-                  <option value="outflow">Outflow</option>
-                  <option value="periodic">Periodic</option>
-                </select>
-              </label>
-
-              <label className="field-inline control-span-2" title="How gravity handles distances near boundaries (single box vs periodic images).">
-                <span>Gravity boundary:</span>
-                <select
-                  value={solverMode === "fft-pm" ? "periodic" : gravityBoundaryMode}
-                  disabled={controlsLocked || solverMode === "fft-pm"}
-                  onChange={(event) =>
-                    setGravityBoundaryMode(event.target.value as GravityBoundaryMode)
-                  }
-                >
-                  <option value="single-box">Single box</option>
-                  <option value="periodic">Periodic (3x3 images)</option>
-                </select>
-              </label>
-            </div>
-          </div>
-
-          <div className="control-section control-span-2">
-            <h4 className="section-title">Dense-region processes</h4>
-            <div className="control-grid">
-              <label className="checkbox control-span-2" title="Enable velocity damping process for selected particles.">
-                <input
-                  type="checkbox"
-                  checked={coolingEnabled}
-                  disabled={controlsLocked}
-                  onChange={(event) => setCoolingEnabled(event.target.checked)}
-                />
-                <span>Cooling.</span>
-              </label>
-
-              <label className="control-span-2" title="Sets the energy-loss strength for selected particles (representing baryons). Higher values make those particles settle more quickly.">
-                <span className="slider-label">
-                  <span>Cooling strength:</span>
-                  <strong>{format(coolingStrength)}</strong>
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={2}
-                  step={0.05}
-                  value={coolingStrength}
-                  disabled={controlsLocked || !coolingEnabled}
-                  onChange={(event) => setCoolingStrength(Number(event.target.value))}
-                />
-              </label>
-
-              <label className="control-span-2" title="Fraction of particles eligible for cooling each run.">
-                <span className="slider-label">
-                  <span>Cooling fraction:</span>
-                  <strong>{(coolingFraction * 100).toFixed(0)}%</strong>
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={coolingFraction}
-                  disabled={controlsLocked}
-                  onChange={(event) => setCoolingFraction(Number(event.target.value))}
-                />
-              </label>
-              <p className="subtle cooling-warning control-span-2">
-                Warning: the cooled-particle subset can change if initial-condition or boundary settings are changed.
-              </p>
-
-              <label className="checkbox control-span-2" title="Represents astrophysical heating processes (for example, supernova feedback). Turning this on injects energy into dense regions.">
-                <input
-                  type="checkbox"
-                  checked={feedbackEnabled}
-                  disabled={controlsLocked}
-                  onChange={(event) => setFeedbackEnabled(event.target.checked)}
-                />
-                <span>Feedback (dense regions).</span>
-              </label>
-
-              <label className="control-span-2" title="Amplitude of random feedback kicks in dense regions.">
-                <span className="slider-label">
-                  <span>Feedback strength:</span>
-                  <strong>{format(feedbackStrength)}</strong>
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={2}
-                  step={0.05}
-                  value={feedbackStrength}
-                  disabled={controlsLocked || !feedbackEnabled}
-                  onChange={(event) => setFeedbackStrength(Number(event.target.value))}
-                />
-              </label>
-            </div>
-          </div>
-
-          <label className="field-inline control-span-2" title="Target step at which run metrics and snapshot are captured.">
-            <span>Desired step:</span>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={desiredStep}
-              disabled={controlsLocked}
-              onChange={(event) => setDesiredStep(Math.max(1, Number(event.target.value) || 1))}
+          <div className="compare-target-card">
+            <img
+              className="compare-reference-image"
+              src={COMPARE_2_REFERENCE_FINAL_STATE_IMAGE_URL}
+              alt="Reference final-state simulation box for Compare 2"
             />
-          </label>
+            <StageToggle label="Compare 2" on={compare2Enabled} disabled={controlsLocked} tip={TIP.compare} onChange={setCompare2Enabled} />
+          </div>
+        </div>
+      </StageSection>
+    </>
+  );
 
-          <label className="control-span-2" title="Runtime threshold where timing color turns yellow (red at 2x this value).">
-            <span className="slider-label">
-              <span>Yellow at (seconds):</span>
-              <strong>{format(yellowTimeSeconds)} s</strong>
-            </span>
-            <input
-              type="range"
-              min={2}
-              max={60}
-              step={0.5}
-              value={yellowTimeSeconds}
-              disabled={controlsLocked}
-              onChange={(event) => setYellowTimeSeconds(Number(event.target.value))}
-            />
-          </label>
+  const readouts = (
+    <>
+      <StageReadout label="Current step" value={currentStep} tip={TIP.currentStep} />
+      <StageReadout label="Cosmic time (Gyr)" value={format(cosmicTimeGyr)} tip={TIP.cosmicTime} />
+      <StageReadout label="Running time" value={`${format(runningTimeSeconds)} s`} valueColor={runTimeColor} tip={TIP.runningTime} />
+      <StageReadout
+        label="Time to solution"
+        value={timeToSolutionSeconds === null ? "--" : `${format(timeToSolutionSeconds)} s`}
+        valueColor={timeToSolutionSeconds === null ? undefined : solutionTimeColor}
+        tip={TIP.timeToSolution}
+      />
+    </>
+  );
 
-          <div className="button-row control-span-2">
-            <button type="button" onClick={onStart} disabled={running} title="Start a fresh run with the current configuration.">
-              Start
-            </button>
+  const info = (
+    <>
+      <h4>Running</h4>
+      <ul>
+        <li>Settings lock while a run is going; press reset to change them.</li>
+        <li>At the desired step the run is captured below: a snapshot of the box and its power spectrum.</li>
+        <li>Running-time colours: green, then yellow at the threshold you set, red at twice that.</li>
+      </ul>
+      <h4>Power spectrum</h4>
+      <ul>
+        <li>
+          Shows how strongly matter is clustered at different sizes: the left side is larger structures, the right side
+          smaller ones.
+        </li>
+      </ul>
+      <h4>Once you are done</h4>
+      <ul>
+        <li>Try to match one of the two reference Universes. Tick Compare 1 and/or Compare 2 to get similarity scores when snapshots are captured; lower scores are better.</li>
+        <li>The cooled-particle subset can change if initial-condition or boundary settings are changed.</li>
+      </ul>
+    </>
+  );
+
+  const below =
+    capturedRuns.length > 0 ? (
+      <div className="run-captures">
+        {capturedRuns.map((run) => (
+          <figure className={`run-capture-card${run.powerSpectrumUrl ? " run-capture-card-wide" : ""}`} key={run.runNumber}>
             <button
               type="button"
-              onClick={() => setPaused((v) => !v)}
-              disabled={!running}
-              title="Pause or resume the current run."
+              className="run-capture-delete"
+              aria-label={`Delete ${run.label} snapshot`}
+              onClick={() => removeCapturedRun(run.runNumber)}
             >
-              {paused ? "Resume" : "Pause"}
+              x
             </button>
-            <button type="button" onClick={onReset} title="Stop and reset the simulation to current settings.">
-              Reset
-            </button>
-          </div>
-
-          <div className="stats control-span-2">
-            <div title="Total number of integration steps completed in this run.">
-              Current step: <strong>{currentStep}</strong>
+            <div className="run-capture-visuals">
+              <img src={run.imageUrl} alt={`${run.label} snapshot`} />
+              {run.powerSpectrumUrl ? <img src={run.powerSpectrumUrl} alt={`${run.label} power spectrum`} /> : null}
             </div>
-            <div title="Simulation time advanced in fixed internal timestep units.">
-              Cosmic time (Gyr): <strong>{format(cosmicTimeGyr)}</strong>
-            </div>
-            <div title="Wall-clock runtime since pressing Start.">
-              Running time:{" "}
-              <strong style={{ color: runTimeColor }}>{format(runningTimeSeconds)} s</strong>
-            </div>
-            <div title="Wall-clock time when the run first reached the desired step.">
-              Time to solution:{" "}
-              <strong style={{ color: solutionTimeColor }}>
-                {timeToSolutionSeconds === null ? "--" : `${format(timeToSolutionSeconds)} s`}
-              </strong>
-            </div>
-            <p className="subtle spectrum-description">
-              Power spectrum (second panel for each simulation run): this shows how strongly matter
-              is clustered at different sizes. In this plot, the left side corresponds to larger
-              structures and the right side to smaller structures.
-            </p>
-          </div>
-
-          <details className="control-section control-span-2 once-done-box">
-            <summary className="section-title">Once you are done</summary>
-            <div className="once-done-body">
-              <div className="compare-target-grid">
-                <div className="compare-target-card">
-                  <img
-                    className="compare-reference-image"
-                    src={COMPARE_1_REFERENCE_FINAL_STATE_IMAGE_URL}
-                    alt="Reference final-state simulation box for Compare 1"
-                  />
-                  <label className="checkbox">
-                    <input
-                      type="checkbox"
-                      checked={compare1Enabled}
-                      disabled={controlsLocked}
-                      onChange={(event) => setCompare1Enabled(event.target.checked)}
-                    />
-                    <span>Compare 1</span>
-                  </label>
-                </div>
-                <div className="compare-target-card">
-                  <img
-                    className="compare-reference-image"
-                    src={COMPARE_2_REFERENCE_FINAL_STATE_IMAGE_URL}
-                    alt="Reference final-state simulation box for Compare 2"
-                  />
-                  <label className="checkbox">
-                    <input
-                      type="checkbox"
-                      checked={compare2Enabled}
-                      disabled={controlsLocked}
-                      onChange={(event) => setCompare2Enabled(event.target.checked)}
-                    />
-                    <span>Compare 2</span>
-                  </label>
-                </div>
-              </div>
-              <p className="subtle">Try to match one of these reference Universes.</p>
-              <p className="subtle">
-                Tick Compare 1 and/or Compare 2 to get similarity scores when snapshots are captured.
-              </p>
-              <p className="subtle">Lower scores are better.</p>
-            </div>
-          </details>
-        </div>
-      </ControlCard>
-
-      <div className="canvas-shell card">
-        <canvas ref={canvasRef} width={900} height={620} />
-        {capturedRuns.length > 0 && (
-          <div className="run-captures">
-            {capturedRuns.map((run) => (
-              <figure
-                className={`run-capture-card${run.powerSpectrumUrl ? " run-capture-card-wide" : ""}`}
-                key={run.runNumber}
-              >
-                <button
-                  type="button"
-                  className="run-capture-delete"
-                  aria-label={`Delete ${run.label} snapshot`}
-                  onClick={() => removeCapturedRun(run.runNumber)}
-                >
-                  x
-                </button>
-                <div className="run-capture-visuals">
-                  <img src={run.imageUrl} alt={`${run.label} snapshot`} />
-                  {run.powerSpectrumUrl ? (
-                    <img src={run.powerSpectrumUrl} alt={`${run.label} power spectrum`} />
-                  ) : null}
-                </div>
-                <figcaption>
-                  {run.label} | Time:{" "}
-                  <span style={{ color: run.timeColor }}>{format(run.timeSeconds)} s</span> | N:{" "}
-                  {run.stepCount}
-                  {run.compare1Score !== null ? ` | Compare 1 score: ${run.compare1Score.toFixed(4)}` : ""}
-                  {run.compare2Score !== null ? ` | Compare 2 score: ${run.compare2Score.toFixed(4)}` : ""}
-                </figcaption>
-              </figure>
-            ))}
-          </div>
-        )}
+            <figcaption>
+              {run.label} | Time: <span style={{ color: run.timeColor }}>{format(run.timeSeconds)} s</span> | N:{" "}
+              {run.stepCount}
+              {run.compare1Score !== null ? ` | Compare 1 score: ${run.compare1Score.toFixed(4)}` : ""}
+              {run.compare2Score !== null ? ` | Compare 2 score: ${run.compare2Score.toFixed(4)}` : ""}
+            </figcaption>
+          </figure>
+        ))}
       </div>
-    </div>
+    ) : null;
+
+  return (
+    <AppletStage
+      logicalWidth={CANVAS_W}
+      logicalHeight={CANVAS_H}
+      canvasRef={canvasRef}
+      canvasLabel="Simulated matter particles in a 2D box"
+      toolbar={toolbar}
+      controls={controls}
+      readouts={readouts}
+      info={info}
+      play={{ visible: !running || paused, label: playLabel, onClick: onPlayPause }}
+      below={below}
+    />
   );
 }
